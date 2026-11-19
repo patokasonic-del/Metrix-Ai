@@ -81,7 +81,7 @@ function createAvatarElement(variant = "top") {
 
   const img = document.createElement("img");
   img.src = AI_CONFIG.imageUrl;
-  img.alt = '${AI_CONFIG.name} avatar';
+  img.alt = `${AI_CONFIG.name} avatar`;
 
   if (variant === "welcome") {
     img.className = "welcome-avatar-img";
@@ -94,7 +94,7 @@ function createAvatarElement(variant = "top") {
   img.addEventListener("error", () => {
     const fallback = document.createElement("div");
     fallback.textContent = initial;
-    fallback.setAttribute("aria-label", '${AI_CONFIG.name} avatar');
+    fallback.setAttribute("aria-label", `${AI_CONFIG.name} avatar`);
     if (variant === "welcome") {
       fallback.className = "welcome-avatar-fallback";
     } else if (variant === "message") {
