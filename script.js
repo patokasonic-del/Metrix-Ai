@@ -1,402 +1,724 @@
-(() => {
-  'use strict';
+const AI_CONFIG = {
+  name: "Metrix Ai",
+  creator: "Patrick Njoroge, created by Digital solution agency",
+  purpose: "help students with coding and debugging",
+  imageUrl: "./avatar.png",
+  storageKey: "metrix_ai_digital_solution_agency_chats_v1",
+  suggestions: [
+    {
+      icon: "fa-code",
+      title: "Explain a coding concept",
+      prompt:
+        "Explain how closures, async/await, or recursion work in plain language with a clear code example.",
+    },
+    {
+      icon: "fa-bug",
+      title: "Debug an error message",
+      prompt:
+        "Help me debug a runtime or syntax error—tell me what I should paste and how you'll pinpoint the cause.",
+    },
+    {
+      icon: "fa-laptop-code",
+      title: "Review & improve my code",
+      prompt:
+        "Review a small function or script for me and show me how to make it cleaner, safer, and easier to read.",
+    },
+    {
+      icon: "fa-lightbulb",
+      title: "Break down a programming task",
+      prompt:
+        "Give me a step-by-step plan and starter code to solve a student coding assignment or mini-project.",
+    },
+  ],
+};
 
-  const AI_NAME = 'Metrix Ai';
-  const AVATAR = 'avatar.png';
-  const STORE = 'metrix_ai_chats_v1';
-  const MAX_CONTEXT = 20;
+const state = {
+  chats: [],
+  activeChatId: null,
+  isSending: false,
+};
 
-  const SUGGESTIONS = [
-    { icon: 'fa-bug', title: 'Debug my code', sub: "Paste your code and the error you're getting",
-      prompt: 'Help me debug my code. Please tell me what to paste (the code, the error message and the language).' },
-    { icon: 'fa-lightbulb', title: 'Explain a concept', sub: 'Recursion, pointers, OOP... in simple words',
-      prompt: 'Explain recursion in simple terms with a short Python example.' },
-    { icon: 'fa-code', title: 'Write a function', sub: 'Clean code with a clear explanation',
-      prompt: 'Write a JavaScript function that checks if a string is a palindrome, and explain how it works.' },
-    { icon: 'fa-graduation-cap', title: 'Practice for exams', sub: 'Coding questions with worked solutions',
-      prompt: 'Give me 3 beginner-friendly practice problems on arrays in C, with solutions.' },
-  ];
+const els = {
+  sidebar: document.getElementById("sidebar"),
+  sidebarBackdrop: document.getElementById("sidebarBackdrop"),
+  openSidebarBtn: document.getElementById("openSidebarBtn"),
+  closeSidebarBtn: document.getElementById("closeSidebarBtn"),
+  newChatBtn: document.getElementById("newChatBtn"),
+  chatHistoryList: document.getElementById("chatHistoryList"),
+  topBarAvatarContainer: document.getElementById("topBarAvatarContainer"),
+  topBarName: document.getElementById("topBarName"),
+  chatContainer: document.getElementById("chatContainer"),
+  welcomeScreen: document.getElementById("welcomeScreen"),
+  welcomeAvatarContainer: document.getElementById("welcomeAvatarContainer"),
+  welcomeTitle: document.getElementById("welcomeTitle"),
+  welcomeSubtitle: document.getElementById("welcomeSubtitle"),
+  suggestionsGrid: document.getElementById("suggestionsGrid"),
+  messagesList: document.getElementById("messagesList"),
+  messageInput: document.getElementById("messageInput"),
+  sendBtn: document.getElementById("sendBtn"),
+  disclaimerNote: document.getElementById("disclaimerNote"),
+};
 
-  /* ---------- helpers ---------- */
-  const $ = (s, r = document) => r.querySelector(s);
-  const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-  const fmtTime = (t) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  const isTouch = () => window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+function escapeHtml(str) {
+  return String(str ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
-  const chatEl = $('#chat');
-  const inner = $('#chatInner');
-  const input = $('#input');
-  const sendBtn = $('#send');
-  const listEl = $('#chatList');
+function formatCurrentTime(date = new Date()) {
+  return date.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
 
-  async function copyText(text) {
-    try { await navigator.clipboard.writeText(text); return true; }
-    catch (e) {
-      try {
-        const ta = document.createElement('textarea');
-        ta.value = text; ta.style.cssText = 'position:fixed;opacity:0;top:0;left:0';
-        document.body.appendChild(ta); ta.select();
-        const ok = document.execCommand('copy'); ta.remove(); return ok;
-      } catch (e2) { return false; }
+function createAvatarElement(variant = "top") {
+  const initial = (AI_CONFIG.name.trim()[0] || "M").toUpperCase();
+  const wrapper = document.createElement("div");
+
+  const img = document.createElement("img");
+  img.src = AI_CONFIG.imageUrl;
+  img.alt = ${AI_CONFIG.name} avatar;
+
+  if (variant === "welcome") {
+    img.className = "welcome-avatar-img";
+  } else if (variant === "message") {
+    img.className = "msg-avatar-img";
+  } else {
+    img.className = "avatar-img";
+  }
+
+  img.addEventListener("error", () => {
+    const fallback = document.createElement("div");
+    fallback.textContent = initial;
+    fallback.setAttribute("aria-label", ${AI_CONFIG.name} avatar);
+    if (variant === "welcome") {
+      fallback.className = "welcome-avatar-fallback";
+    } else if (variant === "message") {
+      fallback.className = "msg-avatar-fallback";
+    } else {
+      fallback.className = "avatar-fallback";
     }
-  }
+    img.replaceWith(fallback);
+  });
 
-  /* ---------- avatar with letter fallback ---------- */
-  function avatarHTML(sizeClass) {
-    return `<img class="avatar-img ${sizeClass}" src="${AVATAR}" alt="${esc(AI_NAME)}">`;
-  }
-  function toFallback(img) {
-    const span = document.createElement('span');
-    span.className = img.className.replace('avatar-img', 'avatar-fallback');
-    span.textContent = AI_NAME.charAt(0).toUpperCase();
-    span.setAttribute('role', 'img');
-    span.setAttribute('aria-label', AI_NAME);
-    img.replaceWith(span);
-  }
-  function checkAvatars(root) {
-    (root || document).querySelectorAll('img.avatar-img').forEach((img) => {
-      if (img.complete && img.naturalWidth === 0) toFallback(img);
+  wrapper.appendChild(img);
+  return wrapper.firstChild;
+}
+
+function renderBranding() {
+  els.topBarName.textContent = AI_CONFIG.name;
+  els.topBarAvatarContainer.innerHTML = "";
+  els.topBarAvatarContainer.appendChild(createAvatarElement("top"));
+
+  els.welcomeAvatarContainer.innerHTML = "";
+  els.welcomeAvatarContainer.appendChild(createAvatarElement("welcome"));
+
+  els.welcomeTitle.textContent = Hi, I'm ${AI_CONFIG.name};
+  els.welcomeSubtitle.textContent = By ${AI_CONFIG.creator} to ${AI_CONFIG.purpose}. Ask a question, paste an error, or pick a starting prompt below.;
+  els.disclaimerNote.textContent = ${AI_CONFIG.name} can make mistakes.;
+
+  els.suggestionsGrid.innerHTML = "";
+  AI_CONFIG.suggestions.forEach((item) => {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "suggestion-card";
+    card.innerHTML = `
+      <div class="suggestion-card-top">
+        <i class="fa-solid ${escapeHtml(item.icon)}"></i>
+        <span>${escapeHtml(item.title)}</span>
+      </div>
+      <div class="suggestion-card-desc">${escapeHtml(item.prompt)}</div>
+    `;
+    card.addEventListener("click", () => {
+      if (state.isSending) return;
+      sendUserMessage(item.prompt);
     });
-  }
-  document.addEventListener('error', (e) => {
-    const t = e.target;
-    if (t && t.tagName === 'IMG' && t.classList.contains('avatar-img')) toFallback(t);
-  }, true);
-
-  /* ---------- markdown (safe: everything is escaped) ---------- */
-  function inline(text) {
-    return text.split(/(`[^`\n]+`)/g).map((part, i) => {
-      if (i % 2 === 1) return '<code>' + esc(part.slice(1, -1)) + '</code>';
-      let s = esc(part);
-      s = s.replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>');
-      s = s.replace(/(^|[^*\w])\*([^*\s][^*\n]*?)\*(?!\*)/g, '$1<em>$2</em>');
-      s = s.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-      return s;
-    }).join('');
-  }
-
-  function renderText(text) {
-    const lines = text.split('\n');
-    let out = '', list = null, para = [];
-    const flushPara = () => { if (para.length) { out += '<p>' + para.map(inline).join('<br>') + '</p>'; para = []; } };
-    const closeList = () => { if (list) { out += '</' + list + '>'; list = null; } };
-    let m;
-    for (const raw of lines) {
-      const line = raw.replace(/\s+$/, '');
-      if (!line.trim()) { flushPara(); closeList(); continue; }
-      if ((m = line.match(/^(#{1,6})\s+(.*)$/))) {
-        flushPara(); closeList();
-        const lv = Math.min(m[1].length + 1, 6);
-        out += `<h${lv}>${inline(m[2])}</h${lv}>`; continue;
-      }
-      if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { flushPara(); closeList(); out += '<hr>'; continue; }
-      if ((m = line.match(/^\s*>\s?(.*)$/))) { flushPara(); closeList(); out += '<blockquote>' + inline(m[1]) + '</blockquote>'; continue; }
-      if ((m = line.match(/^\s*[-*•]\s+(.*)$/))) {
-        flushPara();
-        if (list !== 'ul') { closeList(); out += '<ul>'; list = 'ul'; }
-        out += '<li>' + inline(m[1]) + '</li>'; continue;
-      }
-      if ((m = line.match(/^\s*\d+[.)]\s+(.*)$/))) {
-        flushPara();
-        if (list !== 'ol') { closeList(); out += '<ol>'; list = 'ol'; }
-        out += '<li>' + inline(m[1]) + '</li>'; continue;
-      }
-      closeList();
-      para.push(line);
-    }
-    flushPara(); closeList();
-    return out;
-  }
-
-  function codeBlock(lang, code) {
-    const label = (lang || 'code').trim() || 'code';
-    return '<div class="codeblock"><div class="code-head"><span class="lang">' + esc(label) +
-      '</span><button type="button" class="code-copy"><i class="fa-regular fa-copy"></i><span>Copy code</span></button></div>' +
-      '<pre><code>' + esc(code.replace(/\n$/, '')) + '</code></pre></div>';
-  }
-
-  function renderMarkdown(text) {
-    const re = /```([^\n`]*)\n([\s\S]*?)```/g;
-    let html = '', last = 0, m;
-    while ((m = re.exec(text))) {
-      html += renderText(text.slice(last, m.index));
-      html += codeBlock(m[1].trim().split(/\s+/)[0], m[2]);
-      last = re.lastIndex;
-    }
-    const rest = text.slice(last);
-    const open = rest.indexOf('```');
-    if (open > -1) { // a fence that was never closed
-      html += renderText(rest.slice(0, open));
-      const after = rest.slice(open + 3);
-      const nl = after.indexOf('\n');
-      html += codeBlock(nl > -1 ? after.slice(0, nl).trim().split(/\s+/)[0] : '', nl > -1 ? after.slice(nl + 1) : after);
-    } else {
-      html += renderText(rest);
-    }
-    return html;
-  }
-
-  /* ---------- state ---------- */
-  let chats = [];
-  let current = newChatObj();
-  let busy = false;
-  let errorRow = null;
-
-  function newChatObj() { return { id: uid(), title: 'New chat', messages: [], updated: Date.now() }; }
-
-  function loadChats() {
-    try {
-      const data = JSON.parse(localStorage.getItem(STORE) || '[]');
-      if (Array.isArray(data)) {
-        chats = data.filter((c) => c && typeof c.id === 'string' && Array.isArray(c.messages)).map((c) => ({
-          id: c.id,
-          title: typeof c.title === 'string' ? c.title : 'Chat',
-          updated: Number(c.updated) || 0,
-          messages: c.messages.filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string'),
-        }));
-      }
-    } catch (e) { chats = []; }
-  }
-  function saveChats() {
-    try { localStorage.setItem(STORE, JSON.stringify(chats.slice(-50))); } catch (e) { /* storage full or blocked */ }
-  }
-
-  /* ---------- rendering ---------- */
-  function renderSidebar() {
-    const sorted = chats.filter((c) => c.messages.length).sort((a, b) => b.updated - a.updated);
-    if (!sorted.length) { listEl.innerHTML = '<div class="empty-list">No chats yet. Start a new one!</div>'; return; }
-    listEl.innerHTML = sorted.map((c) =>
-      `<div class="chat-row${c.id === current.id ? ' active' : ''}" data-id="${esc(c.id)}">` +
-      `<button class="chat-item" type="button" data-open><i class="fa-regular fa-message"></i><span>${esc(c.title)}</span></button>` +
-      `<button class="chat-del" type="button" data-del aria-label="Delete chat"><i class="fa-regular fa-trash-can"></i></button></div>`
-    ).join('');
-  }
-
-  function welcomeHTML() {
-    return '<div class="welcome">' + avatarHTML('av-xl') +
-      `<h1>Hi, I'm <span>${esc(AI_NAME)}</span></h1>` +
-      '<p>Your coding and debugging buddy. Paste your code, share an error, or ask a question and I will help you fix it and understand why.</p>' +
-      '<div class="cards">' + SUGGESTIONS.map((s, i) =>
-        `<button class="card" type="button" data-sug="${i}"><i class="fa-solid ${s.icon}"></i><b>${esc(s.title)}</b><small>${esc(s.sub)}</small></button>`
-      ).join('') + '</div></div>';
-  }
-
-  function messageEl(msg, i) {
-    const el = document.createElement('div');
-    el.dataset.i = String(i);
-    if (msg.role === 'user') {
-      el.className = 'msg user';
-      el.innerHTML = '<div class="bubble">' + esc(msg.content) + '</div>';
-    } else {
-      const fb = msg.feedback;
-      el.className = 'msg ai';
-      el.innerHTML = avatarHTML('av-sm') +
-        '<div class="ai-body"><div class="bubble">' + renderMarkdown(msg.content) + '</div>' +
-        '<div class="actions">' +
-        '<button class="act copy" type="button" title="Copy reply" aria-label="Copy reply"><i class="fa-regular fa-copy"></i><span class="lbl"></span></button>' +
-        '<span class="time">' + esc(fmtTime(msg.time || Date.now())) + '</span>' +
-        `<button class="act up${fb === 'up' ? ' active' : ''}" type="button" title="Good response" aria-label="Good response" aria-pressed="${fb === 'up'}"><i class="fa-${fb === 'up' ? 'solid' : 'regular'} fa-thumbs-up"></i></button>` +
-        `<button class="act down${fb === 'down' ? ' active' : ''}" type="button" title="Bad response" aria-label="Bad response" aria-pressed="${fb === 'down'}"><i class="fa-${fb === 'down' ? 'solid' : 'regular'} fa-thumbs-down"></i></button>` +
-        '</div></div>';
-    }
-    return el;
-  }
-
-  function renderChat() {
-    errorRow = null;
-    inner.innerHTML = '';
-    if (!current.messages.length) {
-      inner.innerHTML = welcomeHTML();
-    } else {
-      current.messages.forEach((m, i) => inner.appendChild(messageEl(m, i)));
-    }
-    checkAvatars(inner);
-    scrollDown(true);
-  }
-
-  function scrollDown(instant) {
-    requestAnimationFrame(() => chatEl.scrollTo({ top: chatEl.scrollHeight, behavior: instant ? 'auto' : 'smooth' }));
-  }
-
-  function showTyping() {
-    const el = document.createElement('div');
-    el.className = 'msg ai'; el.id = 'typing';
-    el.innerHTML = avatarHTML('av-sm') + '<div class="ai-body"><div class="bubble"><span class="dots"><i></i><i></i><i></i></span></div></div>';
-    inner.appendChild(el); checkAvatars(el); scrollDown();
-  }
-  function hideTyping() { const t = $('#typing'); if (t) t.remove(); }
-
-  function showError(text) {
-    const el = document.createElement('div');
-    el.className = 'msg ai error';
-    el.innerHTML = avatarHTML('av-sm') +
-      '<div class="ai-body"><div class="bubble"><i class="fa-solid fa-triangle-exclamation"></i> ' + esc(text) +
-      '</div><button class="retry" type="button" data-retry><i class="fa-solid fa-rotate-right"></i> Try again</button></div>';
-    inner.appendChild(el); errorRow = el; checkAvatars(el); scrollDown();
-  }
-
-  /* ---------- sending ---------- */
-  function updateSend() { sendBtn.disabled = busy || !input.value.trim(); }
-  function autosize() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 160) + 'px'; }
-
-  async function requestReply(chat) {
-    busy = true; updateSend();
-    if (errorRow) { errorRow.remove(); errorRow = null; }
-    showTyping();
-
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 60000);
-    let reply = null, errText = null;
-
-    try {
-      const payload = chat.messages.slice(-MAX_CONTEXT).map((m) => ({ role: m.role, content: m.content }));
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: payload }),
-        signal: ctrl.signal,
-      });
-      let data = {};
-      try { data = await res.json(); } catch (e) { /* not JSON */ }
-      if (!res.ok || !data.reply) {
-        errText = data.error || (res.status === 404
-          ? 'The chat service was not found. Make sure api/chat.js is deployed.'
-          : 'Something went wrong. Please try again.');
-      } else {
-        reply = data.reply;
-      }
-    } catch (e) {
-      errText = e && e.name === 'AbortError'
-        ? 'That took too long. Please try again.'
-        : "I couldn't reach the server. Check your internet connection and try again.";
-    } finally {
-      clearTimeout(timer);
-    }
-
-    busy = false;
-    if (current === chat) hideTyping();
-
-    if (reply) {
-      chat.messages.push({ role: 'assistant', content: reply, time: Date.now() });
-      chat.updated = Date.now();
-      saveChats(); renderSidebar();
-      if (current === chat) {
-        inner.appendChild(messageEl(chat.messages[chat.messages.length - 1], chat.messages.length - 1));
-        checkAvatars(inner); scrollDown();
-      }
-    } else if (current === chat) {
-      showError(errText);
-    }
-    updateSend();
-  }
-
-  function send(text) {
-    text = String(text || '').trim();
-    if (!text || busy) return;
-    if (!chats.includes(current)) chats.push(current);
-    current.messages.push({ role: 'user', content: text, time: Date.now() });
-    if (current.title === 'New chat') current.title = text.replace(/\s+/g, ' ').slice(0, 42);
-    current.updated = Date.now();
-    saveChats();
-    input.value = ''; autosize();
-    renderChat(); renderSidebar();
-    requestReply(current);
-  }
-
-  /* ---------- sidebar actions ---------- */
-  function closeSidebar() { document.body.classList.remove('sidebar-open'); }
-
-  function startNewChat() {
-    if (busy) return;
-    if (!current.messages.length) { closeSidebar(); input.focus(); return; }
-    current = newChatObj();
-    renderChat(); renderSidebar(); closeSidebar(); input.focus();
-  }
-
-  /* ---------- events ---------- */
-  input.addEventListener('input', () => { autosize(); updateSend(); });
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !isTouch()) {
-      e.preventDefault();
-      send(input.value);
-    }
+    els.suggestionsGrid.appendChild(card);
   });
-  $('#form').addEventListener('submit', (e) => { e.preventDefault(); send(input.value); });
+}
 
-  $('#newChat').addEventListener('click', startNewChat);
-  $('#menuBtn').addEventListener('click', () => document.body.classList.toggle('sidebar-open'));
-  $('#overlay').addEventListener('click', closeSidebar);
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSidebar(); });
-
-  listEl.addEventListener('click', (e) => {
-    const row = e.target.closest('.chat-row');
-    if (!row) return;
-    const id = row.dataset.id;
-    if (e.target.closest('[data-del]')) {
-      const wasCurrent = current.id === id;
-      chats = chats.filter((c) => c.id !== id);
-      saveChats();
-      if (wasCurrent) { current = newChatObj(); renderChat(); }
-      renderSidebar();
+function loadChatsFromStorage() {
+  try {
+    const raw = localStorage.getItem(AI_CONFIG.storageKey);
+    if (!raw) {
+      state.chats = [];
+      state.activeChatId = null;
       return;
     }
-    if (e.target.closest('[data-open]')) {
-      if (busy && current.id !== id) return;
-      const c = chats.find((x) => x.id === id);
-      if (c) { current = c; renderChat(); renderSidebar(); closeSidebar(); }
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      state.chats = parsed;
+      state.activeChatId = parsed[0]?.id || null;
     }
-  });
+  } catch (err) {
+    console.error("Failed to load chat history:", err);
+    state.chats = [];
+    state.activeChatId = null;
+  }
+}
 
-  inner.addEventListener('click', async (e) => {
-    const sug = e.target.closest('[data-sug]');
-    if (sug) { send(SUGGESTIONS[Number(sug.dataset.sug)].prompt); return; }
+function saveChatsToStorage() {
+  try {
+    localStorage.setItem(AI_CONFIG.storageKey, JSON.stringify(state.chats));
+  } catch (err) {
+    console.error("Failed to save chat history:", err);
+  }
+}
 
-    if (e.target.closest('[data-retry]')) { requestReply(current); return; }
+function getActiveChat() {
+  return state.chats.find((c) => c.id === state.activeChatId) || null;
+}
 
-    const codeCopy = e.target.closest('.code-copy');
-    if (codeCopy) {
-      const code = codeCopy.closest('.codeblock').querySelector('code').textContent;
-      const ok = await copyText(code);
-      const label = codeCopy.querySelector('span');
-      label.textContent = ok ? 'Copied' : 'Failed';
-      setTimeout(() => { label.textContent = 'Copy code'; }, 1500);
-      return;
-    }
-
-    const msgEl = e.target.closest('.msg.ai');
-    const act = e.target.closest('.act');
-    if (!msgEl || !act || msgEl.dataset.i === undefined) return;
-    const msg = current.messages[Number(msgEl.dataset.i)];
-    if (!msg) return;
-
-    if (act.classList.contains('copy')) {
-      const ok = await copyText(msg.content);
-      const icon = act.querySelector('i'), lbl = act.querySelector('.lbl');
-      icon.className = ok ? 'fa-solid fa-check' : 'fa-solid fa-xmark';
-      lbl.textContent = ok ? 'Copied' : 'Failed';
-      act.classList.toggle('done', ok);
-      setTimeout(() => { icon.className = 'fa-regular fa-copy'; lbl.textContent = ''; act.classList.remove('done'); }, 1500);
-      return;
-    }
-
-    const val = act.classList.contains('up') ? 'up' : 'down';
-    msg.feedback = msg.feedback === val ? null : val;
-    saveChats();
-    const up = msgEl.querySelector('.act.up'), down = msgEl.querySelector('.act.down');
-    [[up, 'up'], [down, 'down']].forEach(([btn, v]) => {
-      const on = msg.feedback === v;
-      btn.classList.toggle('active', on);
-      btn.setAttribute('aria-pressed', String(on));
-      btn.querySelector('i').className = 'fa-' + (on ? 'solid' : 'regular') + ' fa-thumbs-' + v;
-    });
-  });
-
-  /* ---------- start ---------- */
-  loadChats();
-  checkAvatars(document);
-  renderChat();
+function createNewChat() {
+  const newChat = {
+    id: chat_${Date.now()}_${Math.random().toString(36).slice(2, 7)},
+    title: "New chat",
+    updatedAt: Date.now(),
+    messages: [],
+  };
+  state.chats.unshift(newChat);
+  state.activeChatId = newChat.id;
+  saveChatsToStorage();
   renderSidebar();
-  updateSend();
-  if (!isTouch()) input.focus();
-})();
+  renderActiveConversation();
+  closeMobileSidebar();
+  els.messageInput.focus();
+}
+
+function selectChat(chatId) {
+  if (state.isSending) return;
+  state.activeChatId = chatId;
+  renderSidebar();
+  renderActiveConversation();
+  closeMobileSidebar();
+}
+
+function deleteChat(chatId, event) {
+  event.stopPropagation();
+  if (state.isSending) return;
+  state.chats = state.chats.filter((c) => c.id !== chatId);
+  if (state.activeChatId === chatId) {
+    state.activeChatId = state.chats[0]?.id || null;
+  }
+  saveChatsToStorage();
+  renderSidebar();
+  renderActiveConversation();
+}
+
+function renderSidebar() {
+  els.chatHistoryList.innerHTML = "";
+
+  if (!state.chats.length) {
+    const emptyEl = document.createElement("div");
+    emptyEl.className = "chat-history-empty";
+    emptyEl.textContent = "No saved chats yet.";
+    els.chatHistoryList.appendChild(emptyEl);
+    return;
+  }
+
+  state.chats.forEach((chat) => {
+    const item = document.createElement("div");
+    item.className = chat-history-item ${chat.id === state.activeChatId ? "active" : ""};
+    item.setAttribute("role", "button");
+    item.setAttribute("tabindex", "0");
+
+    const titleSpan = document.createElement("span");
+    titleSpan.className = "chat-history-title";
+    titleSpan.textContent = chat.title || "New chat";
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.type = "button";
+    deleteBtn.className = "delete-chat-btn";
+    deleteBtn.title = "Delete chat";
+    deleteBtn.setAttribute("aria-label", Delete ${chat.title || "chat"});
+    deleteBtn.innerHTML = <i class="fa-solid fa-trash"></i>;
+    deleteBtn.addEventListener("click", (e) => deleteChat(chat.id, e));
+
+    item.addEventListener("click", () => selectChat(chat.id));
+    item.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        selectChat(chat.id);
+      }
+    });
+
+    item.appendChild(titleSpan);
+    item.appendChild(deleteBtn);
+    els.chatHistoryList.appendChild(item);
+  });
+}
+
+function formatInlineText(escapedLine) {
+  let result = escapedLine;
+  result = result.replace(/([^\n]+)`/g, (_, code) => {
+    return <code class="inline-code">${code}</code>;
+  });
+  result = result.replace(/\\([^\n]+)\\*/g, "<strong>$1</strong>");
+  return result;
+}
+
+function renderMarkdownSafe(markdownText) {
+  const normalized = String(markdownText ?? "").replace(/\r\n/g, "\n");
+  const fenceRegex = /([a-zA-Z0-9_-]*)\n?([\s\S]*?)/g;
+
+  const segments = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = fenceRegex.exec(normalized)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({
+        type: "text",
+        content: normalized.slice(lastIndex, match.index),
+      });
+    }
+    segments.push({
+      type: "code",
+      language: (match[1] || "code").trim(),
+      code: match[2].replace(/\n$/, ""),
+    });
+    lastIndex = fenceRegex.lastIndex;
+  }
+
+  if (lastIndex < normalized.length) {
+    segments.push({
+      type: "text",
+      content: normalized.slice(lastIndex),
+    });
+  }
+
+  const container = document.createElement("div");
+  container.className = "formatted-content";
+
+  segments.forEach((seg) => {
+    if (seg.type === "code") {
+      const block = document.createElement("div");
+      block.className = "code-block";
+
+      const header = document.createElement("div");
+      header.className = "code-block-header";
+
+      const langLabel = document.createElement("span");
+      langLabel.textContent = seg.language || "code";
+
+      const copyCodeBtn = document.createElement("button");
+      copyCodeBtn.type = "button";
+      copyCodeBtn.className = "copy-code-btn";
+      copyCodeBtn.innerHTML = <i class="fa-regular fa-copy"></i> <span>Copy code</span>;
+
+      copyCodeBtn.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(seg.code);
+        } catch {
+          // Clipboard fallback ignored
+        }
+        copyCodeBtn.innerHTML = <i class="fa-solid fa-check"></i> <span>Copied</span>;
+        setTimeout(() => {
+          copyCodeBtn.innerHTML = <i class="fa-regular fa-copy"></i> <span>Copy code</span>;
+        }, 1600);
+      });
+
+      header.appendChild(langLabel);
+      header.appendChild(copyCodeBtn);
+
+      const pre = document.createElement("pre");
+      const codeEl = document.createElement("code");
+      codeEl.textContent = seg.code;
+      pre.appendChild(codeEl);
+
+      block.appendChild(header);
+      block.appendChild(pre);
+      container.appendChild(block);
+      return;
+    }
+
+    const lines = seg.content.split("\n");
+    let i = 0;
+
+    while (i < lines.length) {
+      const line = lines[i];
+
+      if (!line.trim()) {
+        i += 1;
+        continue;
+      }
+
+      const headingMatch = line.match(/^(#{1,4})\s+(.*)$/);
+      if (headingMatch) {
+        const level = headingMatch[1].length;
+        const hTag = h${Math.min(level, 4)};
+        const headingEl = document.createElement(hTag);
+        headingEl.innerHTML = formatInlineText(escapeHtml(headingMatch[2]));
+        container.appendChild(headingEl);
+        i += 1;
+        continue;
+      }
+
+      if (/^\s*[-*+]\s+/.test(line)) {
+        const ul = document.createElement("ul");
+        while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) {
+          const itemText = lines[i].replace(/^\s*[-*+]\s+/, "");
+          const li = document.createElement("li");
+          li.innerHTML = formatInlineText(escapeHtml(itemText));
+          ul.appendChild(li);
+          i += 1;
+        }
+        container.appendChild(ul);
+        continue;
+      }
+
+      if (/^\s*\d+\.\s+/.test(line)) {
+        const ol = document.createElement("ol");
+        while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
+          const itemText = lines[i].replace(/^\s*\d+\.\s+/, "");
+          const li = document.createElement("li");
+          li.innerHTML = formatInlineText(escapeHtml(itemText));
+          ol.appendChild(li);
+          i += 1;
+        }
+        container.appendChild(ol);
+        continue;
+      }
+
+      const paraLines = [];
+      while (
+        i < lines.length &&
+        lines[i].trim() &&
+        !/^(#{1,4})\s+/.test(lines[i]) &&
+        !/^\s*[-*+]\s+/.test(lines[i]) &&
+        !/^\s*\d+\.\s+/.test(lines[i])
+      ) {
+        paraLines.push(lines[i]);
+        i += 1;
+      }
+
+      const p = document.createElement("p");
+      p.innerHTML = paraLines
+        .map((l) => formatInlineText(escapeHtml(l)))
+        .join("<br />");
+      container.appendChild(p);
+    }
+  });
+
+  return container;
+}
+
+function createAssistantMessageElement(msg, chatId) {
+  const row = document.createElement("div");
+  row.className = "message-row assistant";
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "assistant-message-wrapper";
+
+  wrapper.appendChild(createAvatarElement("message"));
+
+  const bodyCol = document.createElement("div");
+  bodyCol.className = "assistant-body-col";
+
+  const card = document.createElement("div");
+  card.className = assistant-card ${msg.isError ? "error-card" : ""};
+  card.appendChild(renderMarkdownSafe(msg.content));
+  bodyCol.appendChild(card);
+
+  if (!msg.isError) {
+    const actionBar = document.createElement("div");
+    actionBar.className = "message-action-bar";
+
+    const copyBtn = document.createElement("button");
+    copyBtn.type = "button";
+    copyBtn.className = "action-icon-btn";
+    copyBtn.innerHTML = <i class="fa-regular fa-copy"></i> <span>Copy</span>;
+    copyBtn.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(msg.content);
+      } catch {
+        // Clipboard fallback ignored
+      }
+      copyBtn.innerHTML = <i class="fa-solid fa-check"></i> <span>Copied</span>;
+      copyBtn.classList.add("active");
+      setTimeout(() => {
+        copyBtn.innerHTML = <i class="fa-regular fa-copy"></i> <span>Copy</span>;
+        copyBtn.classList.remove("active");
+      }, 1500);
+    });
+
+    const timeSpan = document.createElement("span");
+    timeSpan.className = "reply-timestamp";
+    timeSpan.textContent = msg.timestamp || formatCurrentTime();
+
+    const upBtn = document.createElement("button");
+    upBtn.type = "button";
+    upBtn.className = action-icon-btn ${msg.feedback === "up" ? "active" : ""};
+    upBtn.setAttribute("aria-label", "Thumbs up");
+    upBtn.innerHTML = <i class="fa-regular fa-thumbs-up"></i>;
+
+    const downBtn = document.createElement("button");
+    downBtn.type = "button";
+    downBtn.className = action-icon-btn ${msg.feedback === "down" ? "active" : ""};
+    downBtn.setAttribute("aria-label", "Thumbs down");
+    downBtn.innerHTML = <i class="fa-regular fa-thumbs-down"></i>;
+
+    const setFeedback = (type) => {
+      const targetChat = state.chats.find((c) => c.id === chatId);
+      const targetMsg = targetChat?.messages.find((m) => m.id === msg.id);
+      if (!targetMsg) return;
+
+      targetMsg.feedback = targetMsg.feedback === type ? null : type;
+      saveChatsToStorage();
+
+      upBtn.classList.toggle("active", targetMsg.feedback === "up");
+      downBtn.classList.toggle("active", targetMsg.feedback === "down");
+    };
+
+    upBtn.addEventListener("click", () => setFeedback("up"));
+    downBtn.addEventListener("click", () => setFeedback("down"));
+
+    actionBar.appendChild(copyBtn);
+    actionBar.appendChild(timeSpan);
+    actionBar.appendChild(upBtn);
+    actionBar.appendChild(downBtn);
+    bodyCol.appendChild(actionBar);
+  }
+
+  wrapper.appendChild(bodyCol);
+  row.appendChild(wrapper);
+  return row;
+}
+
+function createTypingIndicatorElement() {
+  const row = document.createElement("div");
+  row.id = "typingIndicatorRow";
+  row.className = "message-row assistant";
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "assistant-message-wrapper";
+  wrapper.appendChild(createAvatarElement("message"));
+
+  const bodyCol = document.createElement("div");
+  bodyCol.className = "assistant-body-col";
+
+  const card = document.createElement("div");
+  card.className = "assistant-card";
+  card.innerHTML = `
+    <div class="typing-dots" aria-label="AI is typing">
+      <span></span>
+      <span></span>
+      <span></span>
+    </div>
+  `;
+
+  bodyCol.appendChild(card);
+  wrapper.appendChild(bodyCol);
+  row.appendChild(wrapper);
+  return row;
+}
+
+function renderActiveConversation() {
+  const chat = getActiveChat();
+  els.messagesList.innerHTML = "";
+
+  if (!chat || !chat.messages.length) {
+    els.welcomeScreen.style.display = "flex";
+    return;
+  }
+
+  els.welcomeScreen.style.display = "none";
+
+  chat.messages.forEach((msg) => {
+    if (msg.role === "user") {
+      const row = document.createElement("div");
+      row.className = "message-row user";
+
+      const bubble = document.createElement("div");
+      bubble.className = "user-bubble";
+      bubble.textContent = msg.content;
+
+      row.appendChild(bubble);
+      els.messagesList.appendChild(row);
+    } else if (msg.role === "assistant") {
+      els.messagesList.appendChild(createAssistantMessageElement(msg, chat.id));
+    }
+  });
+
+  if (state.isSending) {
+    els.messagesList.appendChild(createTypingIndicatorElement());
+  }
+
+  scrollToBottom();
+}
+
+function scrollToBottom() {
+  requestAnimationFrame(() => {
+    window.scrollTo({
+      top: document.documentElement.scrollHeight,
+      behavior: "smooth",
+    });
+  });
+}
+
+function autoResizeTextarea() {
+  const ta = els.messageInput;
+  ta.style.height = "auto";
+  ta.style.height = ${Math.min(ta.scrollHeight, 180)}px;
+  updateSendButtonState();
+}
+
+function updateSendButtonState() {
+  const hasText = els.messageInput.value.trim().length > 0;
+  els.sendBtn.disabled = !hasText || state.isSending;
+}
+
+async function sendUserMessage(text) {
+  const trimmed = String(text ?? "").trim();
+  if (!trimmed || state.isSending) return;
+
+  let chat = getActiveChat();
+  if (!chat) {
+    chat = {
+      id: chat_${Date.now()}_${Math.random().toString(36).slice(2, 7)},
+      title: "New chat",
+      updatedAt: Date.now(),
+      messages: [],
+    };
+    state.chats.unshift(chat);
+    state.activeChatId = chat.id;
+  }
+
+  if (chat.messages.length === 0) {
+    chat.title = trimmed.length > 36 ? ${trimmed.slice(0, 36)}... : trimmed;
+  }
+
+  const userMsg = {
+    id: msg_${Date.now()}_u,
+    role: "user",
+    content: trimmed,
+    timestamp: formatCurrentTime(),
+  };
+
+  chat.messages.push(userMsg);
+  chat.updatedAt = Date.now();
+
+  state.chats = [chat, ...state.chats.filter((c) => c.id !== chat.id)];
+  saveChatsToStorage();
+
+  els.messageInput.value = "";
+  autoResizeTextarea();
+
+  state.isSending = true;
+  updateSendButtonState();
+  renderSidebar();
+  renderActiveConversation();
+
+  const payloadMessages = chat.messages
+    .filter(
+      (m) =>
+        (m.role === "user" || m.role === "assistant") &&
+        !m.isError &&
+        typeof m.content === "string" &&
+        m.content.trim().length > 0
+    )
+    .slice(-20)
+    .map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
+
+  try {
+    const response = await fetch("/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ messages: payloadMessages }),
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      const errMsg =
+        data?.error ||
+        Something went wrong (${response.status}). Please try again.;
+      chat.messages.push({
+        id: msg_${Date.now()}_e,
+        role: "assistant",
+        content: errMsg,
+        isError: true,
+        timestamp: formatCurrentTime(),
+      });
+    } else {
+      const replyText =
+        typeof data?.reply === "string" && data.reply.trim()
+          ? data.reply.trim()
+          : "I received your message, but didn't get a text response back.";
+
+      chat.messages.push({
+        id: msg_${Date.now()}_a,
+        role: "assistant",
+        content: replyText,
+        feedback: null,
+        timestamp: formatCurrentTime(),
+      });
+    }
+  } catch {
+    chat.messages.push({
+      id: msg_${Date.now()}_n,
+      role: "assistant",
+      content:
+        "Network error: unable to reach the server right now. Please check your connection and try again.",
+      isError: true,
+      timestamp: formatCurrentTime(),
+    });
+  } finally {
+    state.isSending = false;
+    saveChatsToStorage();
+    updateSendButtonState();
+    renderActiveConversation();
+  }
+}
+
+function openMobileSidebar() {
+  els.sidebar.classList.add("open");
+  els.sidebarBackdrop.classList.add("open");
+}
+
+function closeMobileSidebar() {
+  els.sidebar.classList.remove("open");
+  els.sidebarBackdrop.classList.remove("open");
+}
+
+function bindEvents() {
+  els.openSidebarBtn.addEventListener("click", openMobileSidebar);
+  els.closeSidebarBtn.addEventListener("click", closeMobileSidebar);
+  els.sidebarBackdrop.addEventListener("click", closeMobileSidebar);
+  els.newChatBtn.addEventListener("click", createNewChat);
+
+  els.messageInput.addEventListener("input", autoResizeTextarea);
+
+  els.messageInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      if (!els.sendBtn.disabled) {
+        sendUserMessage(els.messageInput.value);
+      }
+    }
+  });
+
+  els.sendBtn.addEventListener("click", () => {
+    sendUserMessage(els.messageInput.value);
+  });
+}
+
+function init() {
+  renderBranding();
+  loadChatsFromStorage();
+  renderSidebar();
+  renderActiveConversation();
+  updateSendButtonState();
+  bindEvents();
+}
+
+init();
