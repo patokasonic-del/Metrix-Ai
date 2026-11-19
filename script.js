@@ -81,7 +81,7 @@ function createAvatarElement(variant = "top") {
 
   const img = document.createElement("img");
   img.src = AI_CONFIG.imageUrl;
-  img.alt = ${AI_CONFIG.name} avatar;
+  img.alt = ${AI_CONFIG.name} "avatar";
 
   if (variant === "welcome") {
     img.className = "welcome-avatar-img";
